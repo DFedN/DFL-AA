@@ -1,0 +1,11 @@
+torch>=2.2
+torchvision>=0.17
+numpy>=1.24
+networkx>=3.2
+tqdm>=4.66
+matplotlib>=3.8
+scipy~=1.15.3
+argparse~=1.4.0
+pandas~=2.2.3
+ray~=2.44.1
+imageio~=2.37.0
