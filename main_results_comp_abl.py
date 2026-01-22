@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 main_results_comp_abl.py
 
