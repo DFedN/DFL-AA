@@ -2,16 +2,26 @@
 
 Welcome to the **DFL-AA Simulator** codebase.
 
-***DFL-AA** (Delta-based Decentralized Federated Learning with Adaptive Aggregation) is a lightweight framework for federated learning in mobile environments with **unreliable communication** and **high mobility**.*
+## DFL-AA in a nutshell
 
-## Overview (DFL-AA)
+**DFL-AA (Delta-based Decentralized Federated Learning with Adaptive Aggregation)** is a lightweight framework designed for **mobile decentralized FL** where communication is **unreliable** (packet loss) and the network topology changes **rapidly** (high mobility). In such settings, classic methods break down: **FedAvg** wastes bandwidth by discarding partial updates, and **Soft-DSGD** can create **artificial consensus** by filling missing parameters with the local model—often hurting accuracy under severe non-IID data.
 
-Mobile **decentralized federated learning (DFL)** over wireless / lossy links suffers from **packet loss, intermittent connectivity, and partial or stale neighbor updates**, which makes naïve parameter averaging unreliable and bandwidth-inefficient. **DFL-AA (Delta Aggregation)** addresses this by exchanging **model deltas** (changes since the last shared state) and performing **robust neighbor aggregation** that accounts for missing/partial transmissions, improving stability and accuracy under mobility while reducing communication overhead.
+### Key idea: partial + stale updates done right
+DFL-AA handles **partial** and **stale** neighbor updates using two simple mechanisms:
+
+- **Delta Aggregation (avoids artificial consensus):** aggregate only the *received* parts of a neighbor model by using deltas, treating missing chunks as **Δ = 0 (neutral)** rather than “agreeing” with the local model.
+- **Age-of-Information (AoI) Decay (true staleness):** weight updates by **wall-clock freshness** (AoI) instead of misleading round counters under heterogeneous speeds.
+
+A practical weighting rule:
+```text
+weight = completeness * exp(-AoI / τ)
+w_new  = w_local + Σ(weight * Δ) / (1 + Σ weight)
+```
 
 ## System Diagram
 
 <p align="center">
-  <img src="https://github.com/DFedN/DFL-AA/blob/main/dflaa_overview.png" alt="DFL-AA System Diagram" width="65%">
+  <img src="https://github.com/DFedN/DFL-AA/blob/main/dflaa_overview.png" alt="DFL-AA System Diagram" width="75%">
 </p>
 
 This repository provides the simulator code and scripts required to reproduce the experiments and generate figures reported in our work. The typical workflow is:
