@@ -11,7 +11,7 @@ Mobile **decentralized federated learning (DFL)** over wireless / lossy links su
 ## System Diagram
 
 <p align="center">
-  <img src="/workspaces/DFL-AA/dflaa_overview.png" alt="DFL-AA System Diagram" width="85%">
+  <img src="https://github.com/DFedN/DFL-AA/blob/main/dflaa_overview.png" alt="DFL-AA System Diagram" width="65%">
 </p>
 
 This repository provides the simulator code and scripts required to reproduce the experiments and generate figures reported in our work. The typical workflow is:
