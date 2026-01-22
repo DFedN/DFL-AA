@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 data_loader.py
 =========================
@@ -30,13 +29,6 @@ Usage:
     --out-root dataset_partitions \
     --seed 42
 
-Then run all:
-  python run_all_exp.py \
-    --partitions-root dataset_partitions \
-    --partition-pattern "{root}/{dataset}/alpha_{alpha_tag}" \
-    --datasets mnist,fmnist,cifar10 \
-    --alphas 0.1,0.5,1.0 \
-    --aggregations vanilla,softSGD,dflaa
 """
 
 import argparse
@@ -54,7 +46,6 @@ from torchvision import datasets
 # Helpers
 # ----------------------------
 def alpha_tag(alpha: float) -> str:
-    # 0.1 -> 0p1, 1.0 -> 1p0 (stable folder naming, no dots)
     s = f"{alpha:.3f}".rstrip("0").rstrip(".")
     if "." not in s:
         s = s + ".0"
@@ -98,8 +89,7 @@ def load_dataset_raw(dataset_name: str, data_dir: str = "./data") -> Tuple[np.nd
     if dn in ("cifar10", "cifar", "cifar-10"):
         train = datasets.CIFAR10(root=data_dir, train=True, download=True)
         test = datasets.CIFAR10(root=data_dir, train=False, download=True)
-        # CIFAR10 stores numpy already
-        X_train = np.array(train.data)  # (N,32,32,3)
+        X_train = np.array(train.data) 
         y_train = np.array(train.targets, dtype=np.int64)
         X_test = np.array(test.data)
         y_test = np.array(test.targets, dtype=np.int64)
@@ -123,10 +113,8 @@ def partition_dirichlet(
     min_size: int = 10,
     max_tries: int = 200,
 ) -> List[np.ndarray]:
-    """
-    Classic per-class Dirichlet partitioning.
-    Retries until every client has at least min_size samples (helps alpha=0.1 not create empty clients).
-    """
+    
+
     class_indices = [np.where(y_train == c)[0].astype(np.int64) for c in range(num_classes)]
 
     for _ in range(max_tries):
@@ -137,7 +125,7 @@ def partition_dirichlet(
             rng.shuffle(idx_c)
 
             props = rng.dirichlet(np.full(num_clients, alpha, dtype=np.float64))
-            # Convert proportions to split points
+            
             split_points = (np.cumsum(props) * len(idx_c)).astype(int)
             split_points[-1] = len(idx_c)
 
@@ -157,7 +145,6 @@ def partition_dirichlet(
                 out.append(arr)
             return out
 
-    # Fallback: return whatever we have (still shuffled)
     out = []
     for k in range(num_clients):
         arr = np.array(client_bins[k], dtype=np.int64)
@@ -179,7 +166,6 @@ def compute_and_print_stats(y_train: np.ndarray, client_indices: List[np.ndarray
         nonzero = int(np.count_nonzero(mat[i]))
         print(f"node_{i}: {total} samples | non-empty classes={nonzero} | class_counts={dict(zip(u.tolist(), c.tolist()))}")
 
-    # Non-IID metric (variance of normalized class histograms)
     row_sums = mat.sum(axis=1, keepdims=True) + 1e-8
     norm = mat / row_sums
     class_variances = np.var(norm, axis=0)
@@ -189,9 +175,7 @@ def compute_and_print_stats(y_train: np.ndarray, client_indices: List[np.ndarray
 
 
 def plot_heatmap(counts: np.ndarray, out_png: Path, title: str):
-    """
-    Bubble heatmap: clients vs classes, bubble size ~ count.
-    """
+    
     num_clients, num_classes = counts.shape
     totals = counts.sum(axis=1)
 
@@ -249,7 +233,7 @@ def save_partition_folder(
 
     partitions: Dict[str, Dict[str, str]] = {}
     for i, idx in enumerate(client_indices):
-        node_id = f"node_{i}"  # IMPORTANT: node_0..node_{N-1}
+        node_id = f"node_{i}"  
         data_file = f"{node_id}_data.npy"
         labels_file = f"{node_id}_labels.npy"
 
@@ -318,7 +302,6 @@ def main():
 
             ensure_dir(folder)
 
-            # stats + plot
             counts = compute_and_print_stats(y_train, client_idx, num_classes, title=title)
             save_partition_folder(
                 out_dir=folder,
