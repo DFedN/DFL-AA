@@ -1,0 +1,10 @@
+{
+  "dataset": "mnist",
+  "alpha": 0.5,
+  "aggregation": "fedavg",
+  "seed": 42,
+  "num_nodes": 20,
+  "runtime_s": 3000,
+  "mobility_csv": "mobility.csv",
+  "partition_dir": "dataset_partitions/mnist/alpha_0p5"
+}
