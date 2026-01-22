@@ -1,0 +1,10 @@
+{
+  "dataset": "fmnist",
+  "alpha": 0.1,
+  "aggregation": "softSGD",
+  "seed": 42,
+  "num_nodes": 20,
+  "runtime_s": 18000,
+  "mobility_csv": "mobility.csv",
+  "partition_dir": "dataset_partitions/fmnist/alpha_0p1"
+}
