@@ -17,6 +17,17 @@ python road_flow_ou_switch_mobility.py \
     --analyze_radius_m 400 --analyze_delta_s 60
 ```
 
+#### Additionally, if you want to generate a GIF showing node behaviors according to mobility traces, you can run the following script.
+
+``` bash
+python mobility_to_graph.py \
+    --csv_path mobility.csv \
+    --radius_m 500 \
+    --area_m 2000 \
+    --fps 10 \
+    --out_gif network.gif
+```
+
 ### Create a data partitioning according to the nodes
 
 ``` bash
