@@ -4,7 +4,7 @@ main_results.py
 
 Generate figures from main results using summary of each experiment
 
-Expected layout (same as your sweep):
+Expected layout:
   {results_root}/{dataset}/alpha_{alpha_tag}/{aggregation}/seed_{seed}/summary_time_of_round.csv
 
 

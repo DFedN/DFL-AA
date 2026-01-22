@@ -349,7 +349,7 @@ def dataset_hparams(dataset: str) -> Dict:
     if d in ("fmnist", "fashionmnist", "fashion_mnist"):
         return {
             **base,
-            "model_name": "fmnist_mnistnet",  # your CNN (MNISTNet)
+            "model_name": "fmnist_mnistnet", 
             "optimizer": "adam",
             "learning_rate": 1e-3,
             "weight_decay": 0.0,
