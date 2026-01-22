@@ -2,6 +2,11 @@
 """
 run_all_exp.py
 ============
+
+Running point for all DFL Simulation experiments for given algo on given dataset
+
+Usage: For all experiments
+
   python run_all_exp.py \
     --partitions-root dataset_partitions \
     --partition-pattern "{root}/{dataset}/alpha_{alpha_tag}" \
@@ -20,11 +25,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 import ray
 
-from dfl_core import DFedNode  # your Ray actor
+from dfl_core import DFedNode 
 
 
 # ----------------------------
-# Partitions loader (same contract as your dfl_sim.py)
+# Partitions loader
 # ----------------------------
 def load_saved_partition(partition_dir: Path):
     partition_path = Path(partition_dir)
@@ -32,7 +37,6 @@ def load_saved_partition(partition_dir: Path):
         metadata = json.load(f)
 
     client_data = []
-    # stable order node_0..node_{N-1}
     for node_id in sorted(
         metadata["partitions"].keys(),
         key=lambda x: int(x.split("_")[-1]) if "_" in x else int(x),
@@ -48,7 +52,7 @@ def load_saved_partition(partition_dir: Path):
 
 
 # ----------------------------
-# Styling (ICDCS-clean)
+# Styling
 # ----------------------------
 def set_icdcs_style():
     plt.rcParams.update({
@@ -318,12 +322,11 @@ def plot_acc_vs_time_of_round(out_png: Path, x_time: np.ndarray, mean: np.ndarra
 
 
 # ----------------------------
-# Dataset-based configs (this is the key part you asked for)
+# Dataset-based configs
 # ----------------------------
 def dataset_hparams(dataset: str) -> Dict:
     d = dataset.lower()
 
-    # Base: common knobs you already use
     base = {
         "weight_decay": 0.0,
         "momentum": 0.0,
@@ -355,7 +358,6 @@ def dataset_hparams(dataset: str) -> Dict:
         }
 
     if d in ("cifar10", "cifar", "cifar-10"):
-        # Typical ResNet18 CIFAR recipe uses SGD+momentum, larger LR.
         return {
             **base,
             "model_name": "resnet18",
@@ -380,13 +382,11 @@ def build_run_hp(
     base_net: Dict,
 ) -> Dict:
     hp = {
-        # your network/mobility knobs
         **base_net,
         "runtime": int(runtime_s),
         "seed": int(seed),
 
-        # optional staleness knobs used by your novel delta variant
-        "staleness_tau_sec": 1.0,
+        "staleness_tau_sec": 30.0, # Testing defaults is 30.0 | can change this for tau specific experiments
         "min_completeness": 0.2,
     }
     hp.update(dataset_hparams(dataset))
@@ -395,8 +395,8 @@ def build_run_hp(
 
 def fmt_alpha(a: float) -> str:
     s = f"{a:.3f}".rstrip("0").rstrip(".")
-    if "." not in s:   # e.g., "1"
-        s = s + ".0"   # -> "1.0"
+    if "." not in s:  
+        s = s + ".0"  
     return s.replace(".", "p")
 
 
@@ -427,7 +427,6 @@ def run_one(
 ):
     out_dir = ensure_dir(out_dir)
 
-    # Save the run spec early
     run_spec = {
         "dataset": dataset,
         "alpha": alpha,
@@ -459,13 +458,12 @@ def run_one(
     with open(out_dir / "hyperparams.json", "w") as f:
         json.dump(hp, f, indent=2)
 
-    # fresh Ray per run -> avoids actor name collisions (node_0..node_{N-1})
     if ray.is_initialized():
         ray.shutdown()
 
     ray.init(ignore_reinit_error=True, include_dashboard=False, log_to_driver=True)
 
-    # Create actors
+    # Create DFL Ray actors
     actors: Dict[int, ray.actor.ActorHandle] = {}
     for i in range(num_nodes):
         a = DFedNode.options(
@@ -489,7 +487,6 @@ def run_one(
         actors[i] = a
 
     # Run
-    # NEW: Establish global synchronized start time
     global_start_time = time.time()
     print(f"Global start time: {global_start_time}")
 
@@ -523,14 +520,13 @@ def run_one(
         r, t, a = _parse_log_round_time_val(acc_logs[i] or [])
         per_node_acc[i] = (r, t, a)
 
-    # Compute-fair
+    # Compute metrics fairnessly (COnsider globally achived rounds to collect mean values)
     rounds, M, R_common = build_matrix_by_common_round(per_node_acc)
     mean, p10, p50, p90 = summary_stats(M)
     x_time = time_of_round_axis(per_node_acc, starts_epoch, rounds)
 
     per_node_net_stats = {}
     for i in range(num_nodes):
-        # net_histories[i] is what you already ray.get()
         rrstats = per_round_network_stats(net_map[i])
         per_node_net_stats[i] = rrstats
 
@@ -611,7 +607,6 @@ def run_one(
         "network_chunk_delivery_ratio": nm["chunk_delivery_ratio"],
     })
 
-    # Save long logs
     with open(out_dir / "per_node_accuracy_long.csv", "w") as f:
         f.write("node_id,round,time_s,acc\n")
         for i in range(num_nodes):
@@ -672,13 +667,13 @@ def run_one(
     plot_acc_vs_round(out_dir / "acc_vs_round.png", rounds, mean, p10, p90)
     plot_acc_vs_time_of_round(out_dir / "acc_vs_time_of_round.png", x_time, mean, p10, p90)
 
-    # clean shutdown for next run
+    
     ray.shutdown()
     return metrics
 
 
 # ----------------------------
-# Main sweep
+# Main
 # ----------------------------
 def main():
     ap = argparse.ArgumentParser()
@@ -714,7 +709,6 @@ def main():
     partitions_root = Path(args.partitions_root)
     results_root = ensure_dir(Path(args.results_root))
 
-    # Your network base config (shared across datasets)
     base_net = {
         "base_latency_ms": 2.0,
         "latency_per_km": 5.0,
@@ -749,10 +743,9 @@ def main():
                         continue
 
                     if not (part_dir / "metadata.json").exists():
-                        print(f"[MISS] partition not found: {part_dir} (no metadata.json) -> skipping")
+                        print(f"partition not found: {part_dir} (no metadata.json) -> skipping")
                         continue
 
-                    print(f"\n=== RUN: dataset={dataset} alpha={alpha} agg={aggregation} seed={seed} ===")
                     print(f"Partitions: {part_dir}")
                     print(f"Results:    {out_dir}")
 
@@ -776,14 +769,14 @@ def main():
                         print(f"[FAIL] {dataset} alpha={alpha} agg={aggregation} seed={seed}: {e}")
                         with open(out_dir / "ERROR.txt", "w") as f:
                             f.write(str(e))
-                        # attempt a clean ray shutdown before next run
+        
                         try:
                             if ray.is_initialized():
                                 ray.shutdown()
                         except Exception:
                             pass
 
-    # Save a sweep summary table
+    
     if sweep_rows:
         summary_path = results_root / "SWEEP_SUMMARY.csv"
         keys = sorted({k for row in sweep_rows for k in row.keys()})
@@ -791,9 +784,9 @@ def main():
             f.write(",".join(keys) + "\n")
             for row in sweep_rows:
                 f.write(",".join(str(row.get(k, "")) for k in keys) + "\n")
-        print(f"\n[OK] Sweep summary saved: {summary_path}")
+        print(f"\nSweep summary saved: {summary_path}")
     else:
-        print("\n[WARN] No runs completed (check partitions paths / patterns).")
+        print("\n No runs completed (check partitions paths / patterns).")
 
 
 if __name__ == "__main__":

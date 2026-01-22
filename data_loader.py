@@ -6,19 +6,12 @@ Generate partitions for:
   - datasets: mnist, fmnist, cifar10
   - splits: iid or non_iid_dirichlet
   - alphas: e.g., 0.1, 0.5, 1.0
-and save to:
+
+outputs save to:
   partitions_sweep/{dataset}/alpha_{alpha_tag}/
 
 Where alpha_tag:
   0.1 -> 0p1, 0.5 -> 0p5, 1.0 -> 1p0
-
-Each output folder contains:
-  - metadata.json
-  - node_{i}_data.npy
-  - node_{i}_labels.npy
-  - test_data.npy
-  - test_labels.npy
-  - distribution_heatmap.png (optional)
 
 Usage:
   python data_loader.py \
@@ -58,14 +51,6 @@ def ensure_dir(p: Path) -> Path:
 
 
 def load_dataset_raw(dataset_name: str, data_dir: str = "./data") -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, int]:
-    """
-    Return raw arrays (no torchvision transforms applied):
-      X_train, y_train, X_test, y_test, num_classes
-
-    Shapes:
-      mnist/fmnist: X = (N, 28, 28) uint8
-      cifar10:      X = (N, 32, 32, 3) uint8
-    """
     dn = dataset_name.lower()
 
     if dn in ("mnist",):

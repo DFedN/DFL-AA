@@ -2,23 +2,10 @@
 road_flow_ou_switch_mobility.py
 =====================================
 
-Fixes:
-(1) "All nodes drift right": your spread=180 around 0deg gives headings in [-90,+90] => vx>=0.
-    -> Add flow_heading_mode = "paired" (each flow has an opposite direction).
-    -> Add optional zero_drift: subtract mean velocity each step (safety).
-
-(2) "Slow down mobility / keep neighbors similar over 60s":
-    -> Add speed_scale multiplier on effective motion.
-    -> Recommended: larger tau_rel, smaller sigma_rel, larger tau_switch.
-
-Backbone claims (paper-ready):
-- Flow switching: CTMC with exponential dwell time, P(switch in dt)=1-exp(-dt/tau_switch)
-- Relative velocity: OU with exact discretization (stationary Var=sigma^2, Corr(Δ)=exp(-Δ/tau_rel))
-
-Outputs:
+Outputs: save to a csv file
 time_sec,node_id,x_m,y_m,vx_mps,vy_mps,flow_vx_mps,flow_vy_mps,rel_vx_mps,rel_vy_mps,flow_id
 
-Example : Prepared for MNIST 3000s runtime:
+Usage : Prepared for MNIST 3000s runtime:
   python road_flow_ou_switch_mobility.py \
     --nodes 20 --area_m 2000 --duration_s 3000 --dt_s 1 \
     --num_flows 4 --flow_heading_mode paired --flow_heading_deg 0 --flow_heading_spread_deg 90 \
@@ -79,14 +66,6 @@ def apply_wrap_boundary(x, y, W, H):
     return np.mod(x, W), np.mod(y, H)
 
 def ou_step_exact(x: np.ndarray, dt: float, tau: float, sigma: float, rng: np.random.Generator) -> np.ndarray:
-    """
-    Exact OU discretization:
-      x_{t+dt} = a x_t + b N(0,1)
-      a = exp(-dt/tau)
-      b = sigma * sqrt(1 - a^2)
-
-    Stationary Var = sigma^2, Corr(Δ)=exp(-Δ/tau)
-    """
     if tau <= 1e-9:
         return (sigma * rng.normal(0.0, 1.0, size=x.shape)).astype(np.float32)
     a = math.exp(-dt / tau)
@@ -129,16 +108,7 @@ def analyze_retention(positions: np.ndarray, times: np.ndarray, radius_m: float,
 # Flow heading builders
 # ----------------------------
 def build_flow_headings(mode: str, F: int, base_heading: float, spread: float, rng: np.random.Generator) -> np.ndarray:
-    """
-    Returns headings in radians, shape [F].
-
-    mode:
-      - fixed: all = base_heading
-      - spread: evenly spaced over arc [base - spread/2, base + spread/2]
-      - circle: evenly spaced over full circle (balanced)
-      - paired: each heading has an opposite (balanced), spread controls base headings dispersion
-      - random: iid Uniform(-pi, pi)
-    """
+    
     if F <= 0:
         return np.zeros((0,), dtype=np.float32)
 
@@ -149,19 +119,15 @@ def build_flow_headings(mode: str, F: int, base_heading: float, spread: float, r
         return rng.uniform(-np.pi, np.pi, size=F).astype(np.float32)
 
     if mode == "circle":
-        # balanced by construction
         return wrap_angle((base_heading + (2 * np.pi) * (np.arange(F) / F)).astype(np.float32))
 
     if mode == "spread":
-        # IMPORTANT: if spread < 180deg around 0deg, you'll bias vx positive.
         if F == 1:
             return np.array([float(base_heading)], dtype=np.float32)
         offsets = np.linspace(-0.5 * spread, 0.5 * spread, F, endpoint=True).astype(np.float32)
         return wrap_angle((base_heading + offsets).astype(np.float32))
 
     if mode == "paired":
-        # Make opposite pairs so drift cancels.
-        # Create K base headings in an arc, then add +pi for each.
         headings = []
         K = (F + 1) // 2
         if K == 1:
@@ -194,7 +160,6 @@ def main():
     ap.add_argument("--boundary", choices=["reflect", "wrap"], default="reflect")
     ap.add_argument("--out_csv", type=str, default="mobility.csv")
 
-    # Flows
     ap.add_argument("--num_flows", type=int, default=4)
     ap.add_argument("--flow_assign", choices=["round_robin", "random"], default="round_robin")
 
@@ -206,27 +171,22 @@ def main():
     ap.add_argument("--flow_speed_kmph", type=float, default=35.0)
     ap.add_argument("--flow_speed_spread_kmph", type=float, default=8.0)
 
-    # Slow wandering of each flow (optional)
     ap.add_argument("--tau_flow_heading_s", type=float, default=1e9)
     ap.add_argument("--sigma_flow_heading_deg", type=float, default=0.0)
     ap.add_argument("--tau_flow_speed_s", type=float, default=1e9)
     ap.add_argument("--sigma_flow_speed_kmph", type=float, default=0.0)
 
-    # Relative OU per node
     ap.add_argument("--tau_rel_s", type=float, default=600.0)
     ap.add_argument("--sigma_rel_mps", type=float, default=0.25)
 
-    # Flow switching (CTMC)
     ap.add_argument("--tau_switch_s", type=float, default=900.0, help="Mean dwell time (seconds). <=0 disables.")
     ap.add_argument("--switch_mode", choices=["random", "adjacent"], default="adjacent")
 
-    # Extra knobs
     ap.add_argument("--speed_scale", type=float, default=0.7,
                     help="Multiply final velocity by this (slows motion without changing OU math).")
     ap.add_argument("--zero_drift", action="store_true",
                     help="Subtract mean velocity each step (safety against drift if assignment is unbalanced).")
 
-    # Optional retention analysis
     ap.add_argument("--analyze_radius_m", type=float, default=0.0)
     ap.add_argument("--analyze_delta_s", type=float, default=60.0)
 
@@ -245,10 +205,8 @@ def main():
     base_speed = kmph_to_mps(args.flow_speed_kmph)
     speed_spread = kmph_to_mps(args.flow_speed_spread_kmph)
 
-    # ---- per-flow mean heading/speed (initial) ----
     flow_heading0 = build_flow_headings(args.flow_heading_mode, F, base_heading, spread, rng).astype(np.float32)
 
-    # speeds per flow: symmetric spread around base
     if F == 1:
         flow_speed0 = np.array([float(base_speed)], dtype=np.float32)
     else:
@@ -258,20 +216,16 @@ def main():
     flow_heading = flow_heading0.copy()
     flow_speed = flow_speed0.copy()
 
-    # Assign each node to a flow
     if args.flow_assign == "round_robin":
         flow_id = (np.arange(N) % F).astype(int)
     else:
         flow_id = rng.integers(0, F, size=N).astype(int)
 
-    # Initial positions
     x = rng.uniform(0, W, size=N).astype(np.float32)
     y = rng.uniform(0, H, size=N).astype(np.float32)
 
-    # Relative OU state u_i = (vx_rel, vy_rel)
     u = np.zeros((N, 2), dtype=np.float32)
 
-    # switching probability per step for CTMC
     tau_switch = float(args.tau_switch_s)
     do_switch = tau_switch > 0.0 and math.isfinite(tau_switch)
     p_switch = (1.0 - math.exp(-dt / tau_switch)) if do_switch else 0.0
@@ -297,7 +251,6 @@ def main():
         for step_i in range(steps):
             t = step_i * dt
 
-            # --- Markov switching of flows (CTMC) ---
             if do_switch and p_switch > 0:
                 switches = rng.random(size=N) < p_switch
                 if np.any(switches):
@@ -310,10 +263,9 @@ def main():
                             choices = list(range(F))
                             choices.remove(cur)
                             flow_id[i] = int(rng.choice(choices))
-                        else:  # adjacent ring
+                        else:  
                             flow_id[i] = (cur - 1) % F if (rng.random() < 0.5) else (cur + 1) % F
 
-            # --- flow OU wandering (optional) ---
             if sigma_flow_speed > 0:
                 s = (flow_speed - flow_speed0).astype(np.float32)
                 s = ou_step_exact(s, dt, float(args.tau_flow_speed_s), float(sigma_flow_speed), rng)
@@ -322,17 +274,14 @@ def main():
                 flow_speed = flow_speed0.copy()
 
             if sigma_flow_heading > 0:
-                # OU on heading deltas, wrapped
                 deltas = wrap_angle((flow_heading - flow_heading0).astype(np.float32))
                 deltas = ou_step_exact(deltas, dt, float(args.tau_flow_heading_s), float(sigma_flow_heading), rng)
                 flow_heading = wrap_angle((flow_heading0 + deltas).astype(np.float32))
             else:
                 flow_heading = flow_heading0.copy()
 
-            # --- relative OU update ---
             u = ou_step_exact(u, dt, float(args.tau_rel_s), float(args.sigma_rel_mps), rng)
 
-            # --- compute flow velocity per node ---
             flow_v = np.zeros((N, 2), dtype=np.float32)
             for k in range(F):
                 mask = (flow_id == k)
@@ -345,11 +294,9 @@ def main():
 
             v = (flow_v + u).astype(np.float32)
 
-            # SAFETY: remove any global drift if user wants (prevents gradual “everyone to one side”)
             if args.zero_drift:
                 v = (v - v.mean(axis=0, keepdims=True)).astype(np.float32)
 
-            # Apply global slowdown (doesn't change OU correlation structure, just rescales motion)
             v_eff = (float(args.speed_scale) * v).astype(np.float32)
 
             vx = v_eff[:, 0].copy()
@@ -360,7 +307,6 @@ def main():
                 pos_hist[step_i, :, 1] = y
                 t_hist[step_i] = float(t)
 
-            # write rows
             for i in range(N):
                 w.writerow([
                     int(round(t)), i,
@@ -371,33 +317,29 @@ def main():
                     int(flow_id[i]),
                 ])
 
-            # move
             x = x + vx * dt
             y = y + vy * dt
 
-            # boundaries
             if args.boundary == "reflect":
                 x, y, vx2, vy2 = apply_reflect_boundary(x, y, vx, vy, W, H)
-                # After reflection, adjust v_eff to match reflected (vx2, vy2),
-                # but keep OU state u stable; easiest is to overwrite v_eff and re-derive u as residual.
+
                 v_eff_ref = np.stack([vx2, vy2], axis=1).astype(np.float32)
-                # Undo speed_scale to estimate the "true" v after reflection
+
                 inv = 1.0 / max(1e-9, float(args.speed_scale))
                 v_ref = (inv * v_eff_ref).astype(np.float32)
                 if args.zero_drift:
-                    # If we removed drift, re-remove drift consistently.
                     v_ref = (v_ref - v_ref.mean(axis=0, keepdims=True)).astype(np.float32)
-                # Update u so decomposition remains consistent
+                    
                 u = (v_ref - flow_v).astype(np.float32)
             else:
                 x, y = apply_wrap_boundary(x, y, W, H)
 
-    print(f"[OK] wrote {args.out_csv} | nodes={N} | steps={steps} | area={W}x{H}m | flows={F} | "
+    print(f"wrote {args.out_csv} | nodes={N} | steps={steps} | area={W}x{H}m | flows={F} | "
           f"heading_mode={args.flow_heading_mode} | switch_tau={tau_switch}s | speed_scale={args.speed_scale}")
 
     if do_analyze and pos_hist is not None and t_hist is not None:
         mean_ret, mean_deg = analyze_retention(pos_hist, t_hist, float(args.analyze_radius_m), float(args.analyze_delta_s))
-        print(f"[ANALYZE] R={args.analyze_radius_m:.1f}m Δ={args.analyze_delta_s:.1f}s | mean_deg={mean_deg:.3f} | retention={mean_ret:.3f}")
+        print(f"Analysing .... R={args.analyze_radius_m:.1f}m Δ={args.analyze_delta_s:.1f}s | mean_deg={mean_deg:.3f} | retention={mean_ret:.3f}")
 
 
 if __name__ == "__main__":

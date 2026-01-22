@@ -1,4 +1,10 @@
+"""
+dfl_core_abl.py
+=========================
 
+Same as dfl_core.py file, but specialized for Ablation Study: 
+    - component wise validation for DFL-AA
+"""
 import numpy as np
 import pandas as pd
 import ray
@@ -33,7 +39,7 @@ class DatasetSpec:
     std: Tuple[float, ...]
     num_classes: int
     channels: int
-    img_size: int  # 28 for MNIST, 32 for CIFAR
+    img_size: int  
 
 MNIST_SPEC  = DatasetSpec("mnist",        (0.1307,),               (0.3081,),               10, 1, 28)
 FMNIST_SPEC = DatasetSpec("fashion_mnist",(0.2860,),               (0.3530,),               10, 1, 28)
@@ -48,7 +54,7 @@ class NetworkConditions:
     """Network conditions based on distance between nodes."""
     latency_ms: float        # one-way latency
     packet_loss: float       # per-chunk loss probability in [0,1]
-    bandwidth_mbps: float    # Mbps
+    bandwidth_mbps: float    # Mbps - Currently not implemented
 
 
 def calculate_network_conditions(

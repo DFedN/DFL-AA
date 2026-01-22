@@ -1,4 +1,13 @@
+"""
+dfl_core.py
+=========================
 
+CORE DFL Node python script
+
+DFL Node creates as a Ray Actor
+It utilize local data, mobility traces and commmunication to learn with other actors
+
+"""
 import numpy as np
 import pandas as pd
 import ray
@@ -33,11 +42,12 @@ class DatasetSpec:
     std: Tuple[float, ...]
     num_classes: int
     channels: int
-    img_size: int  # 28 for MNIST, 32 for CIFAR
+    img_size: int 
 
 MNIST_SPEC  = DatasetSpec("mnist",        (0.1307,),               (0.3081,),               10, 1, 28)
 FMNIST_SPEC = DatasetSpec("fashion_mnist",(0.2860,),               (0.3530,),               10, 1, 28)
 CIFAR10_SPEC= DatasetSpec("cifar10",      (0.4914,0.4822,0.4465),  (0.2023,0.1994,0.2010),  10, 3, 32)
+
 
 # ==========================================
 # Network Model (Distance-Based)
@@ -48,7 +58,7 @@ class NetworkConditions:
     """Network conditions based on distance between nodes."""
     latency_ms: float        # one-way latency
     packet_loss: float       # per-chunk loss probability in [0,1]
-    bandwidth_mbps: float    # Mbps
+    bandwidth_mbps: float    # Mbps - Currently not implemented
 
 
 def calculate_network_conditions(
@@ -83,12 +93,11 @@ def calculate_network_conditions(
 # ==========================================
 
 class MobilityManager:
-    """Manages node positions over time from CSV."""
+    """Manages node positions over time from Mobility CSV"""
 
     def __init__(self, csv_path: str, num_nodes: int):
         df = pd.read_csv(csv_path)
 
-        # Auto-detect columns
         def pick(cols: List[str]) -> str:
             for c in cols:
                 if c in df.columns:
@@ -104,7 +113,6 @@ class MobilityManager:
         df.columns = ["time", "node_id", "x", "y"]
         df = df.sort_values(["time", "node_id"])
 
-        # Store positions: positions[time][node_id] = (x, y)
         self.positions: Dict[int, Dict[int, Tuple[float, float]]] = {}
 
         for t in df["time"].unique():
@@ -199,23 +207,21 @@ class MNISTNet(nn.Module):
         x = self.fc2(x)
         return x
 
+# ==========================================
+# Model (CIFAR)
+# ==========================================
 def resnet18_cifar(num_classes: int = 10, pretrained: bool = False) -> nn.Module:
     """
-    ResNet-18 adapted for CIFAR (32x32):
-      - conv1: 3x3, stride=1, padding=1
-      - remove maxpool
-      - fc -> num_classes
+    ResNet-18 adapted for CIFAR Datasets
     """
-    # robust across torchvision versions
+    
     try:
-        # torchvision newer API
         if pretrained:
             from torchvision.models import ResNet18_Weights
             model = resnet18(weights=ResNet18_Weights.IMAGENET1K_V1)
         else:
             model = resnet18(weights=None)
     except Exception:
-        # older API
         model = resnet18(pretrained=pretrained)
 
     model.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
@@ -223,19 +229,17 @@ def resnet18_cifar(num_classes: int = 10, pretrained: bool = False) -> nn.Module
     model.fc = nn.Linear(model.fc.in_features, num_classes)
     return model
 
-# ==========================================
-# Model Schema (Pre-Agreed - All Nodes Know This)
-# ==========================================
+# ===================================================
+# Model Schema
+# ===================================================
 
 class ModelSchema:
     """
-    Pre-agreed model structure that all nodes know.
-    In real FL, all nodes have the same architecture!
-    No need to transmit this - it's known a priori.
+    Pre-agreed model structure that all nodes know
     """
 
     def __init__(self, model: nn.Module):
-        self.param_info = []  # (name, start_byte, end_byte, shape, dtype)
+        self.param_info = [] 
         byte_offset = 0
 
         for name, param in model.state_dict().items():
@@ -291,26 +295,21 @@ def bytes_to_model(
     """
     state_dict = {}
 
-    # Convert to bytearray for easier manipulation
     full_bytes = bytearray(model_bytes)
 
     for name, start_byte, end_byte, shape, dtype_str in schema.get_param_info():
         param_bytes = bytes(full_bytes[start_byte:end_byte])
 
-        # Check if this region is all zeros (missing chunks)
         is_missing = all(b == 0 for b in param_bytes)
 
         if is_missing and fill_missing and local_model is not None:
-            # Use local model parameter
             local_state = local_model.state_dict()
             if name in local_state:
                 param_tensor = local_state[name].cpu()
             else:
-                # Fallback: create from zeros
                 param_array = np.frombuffer(param_bytes, dtype=np.dtype(dtype_str))
                 param_tensor = torch.from_numpy(param_array.copy()).reshape(shape)
         else:
-            # Reconstruct from bytes
             param_array = np.frombuffer(param_bytes, dtype=np.dtype(dtype_str))
             param_tensor = torch.from_numpy(param_array.copy()).reshape(shape)
 
@@ -325,23 +324,19 @@ def bytes_to_model(
 @dataclass
 class BundledChunkUpdate:
     """
-    One (sender -> receiver) message containing ONLY the chunks that survived loss.
-    This preserves per-chunk loss semantics but avoids per-chunk Ray messages.
+    One message containing ONLY the chunks that survived loss.
+    This preserves per-chunk loss semantics but avoids per-chunk Ray messages to minimize simulation complexity.
     """
     sender_id: str
     send_time: float
     total_chunks: int
-    chunk_size: int          # bytes per chunk
-    total_size: int          # total model bytes
-    received_chunks: List[Tuple[int, bytes]]  # [(chunk_id, chunk_bytes), ...]
+    chunk_size: int         
+    total_size: int         
+    received_chunks: List[Tuple[int, bytes]]  
     latency: float
     pl: float
     round_number: int
     type_of_message: MessageType
-
-    # Optional: Add checksum for integrity
-    # checksum: int
-
 
     @property
     def received_chunk_ids(self) -> Set[int]:
@@ -363,9 +358,8 @@ class BundledChunkUpdate:
     def to_bytes_fill_local(self, local_bytes: bytes) -> bytes:
         """
         Fill missing with local model: start from local bytes, overwrite only received chunks.
-        (This is the correct 'fill_local' semantics at chunk granularity.)
         """
-        out = bytearray(local_bytes)  # already full length
+        out = bytearray(local_bytes) 
         for cid, data in self.received_chunks:
             start = cid * self.chunk_size
             end = min(start + len(data), self.total_size)
@@ -417,7 +411,6 @@ class DFedNode:
         self.client_data_info = client_data_info
         self.total_train_data_length = total_train_data_length
 
-        # Initialize dataset and model
         dataset_name_l = dataset_name.lower()
         if dataset_name_l in ["fashionmnist", "fashion_mnist", "fmnist"]:
             self.dataset = FMNIST_SPEC
@@ -425,20 +418,16 @@ class DFedNode:
         elif dataset_name_l in ["cifar", "cifar10", "cifar-10"]:
             self.dataset = CIFAR10_SPEC
             model = resnet18_cifar(num_classes=10, pretrained=False)
-            # model = build_resnet18_cifar(num_classes=self.dataset.num_classes)
         else:
             self.dataset = MNIST_SPEC
             model = MNISTMLP()
 
-        # Schema MUST match the chosen model
-        # dummy_model = type(model)() if not isinstance(model, nn.Sequential) else model  # safe-ish
         self.schema = ModelSchema(model)
 
         self.model = model.to(self.device)
 
         self.hyperparams = hyperparams
         if dataset_name_l in ["cifar", "cifar10", "cifar-10"]:
-            # ResNet18-CIFAR: SGD recipe
             self.optimizer = optim.SGD(
                 self.model.parameters(),
                 lr=hyperparams.get("learning_rate", 0.1),
@@ -452,7 +441,6 @@ class DFedNode:
                 gamma=hyperparams.get("gamma", 0.2),
             )
         else:
-            # MNIST/FMNIST small nets: Adam is fine
             self.optimizer = optim.Adam(
                 self.model.parameters(),
                 lr=hyperparams.get("learning_rate", 1e-3),
@@ -489,6 +477,7 @@ class DFedNode:
         self.neighbor_round_counter: Dict[str, int] = {}
         self.neighbor_data_loss: Dict[str, int] = {}
         self.last_update: Dict[str, float] = {}
+        self.last_reception_time: Dict[str, float] = {}
         self.global_start_time = None
 
         # Stats
@@ -508,18 +497,17 @@ class DFedNode:
 
         # Add for adaptive mixing
         self.theta_old = None
-        self.alignment_threshold = 0.0  # Only use aligned neighbors
+        self.alignment_threshold = 0.0  
 
-        #AoI
-        self.last_gen_time = {}  # sender_id -> msg.send_time (global clock)
-        self.last_arrival_time = {}  # sender_id -> arrival time at receiver (global clock)
-        self.last_delay = {}  # sender_id -> (arrival - send_time)
+        #Age-of_Information
+        self.last_gen_time = {}  
+        self.last_arrival_time = {}  
+        self.last_delay = {} 
 
         self.aoi_log = []
         self.aoi_round_log = []
 
     def _create_data_loader(self, data, labels, shuffle=True):
-        # DATA -> torch float32
         if isinstance(data, np.ndarray):
             data = torch.tensor(data.copy(), dtype=torch.float32)
         elif isinstance(data, torch.Tensor):
@@ -527,32 +515,26 @@ class DFedNode:
         else:
             raise TypeError(f"Unsupported data type: {type(data)}")
 
-        # Fix shapes
-        # MNIST-like: (N,28,28) -> (N,1,28,28)
         if data.dim() == 3:
             data = data.unsqueeze(1)
 
-        # CIFAR could be (N,32,32,3)
         if data.dim() == 4:
             if data.shape[1] in (1, 3):
-                pass  # already NCHW
+                pass 
             elif data.shape[-1] in (1, 3):
-                data = data.permute(0, 3, 1, 2).contiguous()  # NHWC -> NCHW
+                data = data.permute(0, 3, 1, 2).contiguous() 
             else:
                 raise ValueError(f"Unsupported 4D data shape: {tuple(data.shape)}")
         else:
             raise ValueError(f"Unsupported data dim: {data.dim()}, shape={tuple(data.shape)}")
 
-        # Scale if [0..255]
         if float(data.max()) > 1.0:
             data = data / 255.0
 
-        # Normalize (channel-wise)
         mean = torch.tensor(self.dataset.mean, dtype=torch.float32).view(1, self.dataset.channels, 1, 1)
         std = torch.tensor(self.dataset.std, dtype=torch.float32).view(1, self.dataset.channels, 1, 1)
         data = (data - mean) / std
 
-        # LABELS
         if isinstance(labels, np.ndarray):
             labels = torch.tensor(labels.copy(), dtype=torch.long)
         elif isinstance(labels, torch.Tensor):
@@ -587,7 +569,6 @@ class DFedNode:
         return self.network_history
 
     def get_current_time(self) -> float:
-        """Get current simulation time."""
         return time.time() - self.sim_start_time if self.sim_start_time else 0.0
 
     def get_aoi_log(self):
@@ -619,7 +600,6 @@ class DFedNode:
         self.messages_received += 1
         now = self.get_global_time()
 
-        # time_diff = self.get_current_time() - msg.send_time
         time_diff = now - msg.send_time
         if time_diff <= msg.latency:
             await asyncio.sleep(msg.latency - time_diff)
@@ -679,7 +659,7 @@ class DFedNode:
 
     async def training_loop(self):
         """
-        NEW: Polished training loop
+        DFL training loop
         """
         try:
             while True:
@@ -700,12 +680,15 @@ class DFedNode:
                 print(f"[Node{self.node_id}] Round {self.round} - Test Accuracy: {accuracy * 100:.2f}%  Test Loss; {loss:.2f}")
 
                 # 4) Send updated model to neighbors in both active and inactive cases
-                # This is to ensure unblocking in changing network
                 await self.send_model_update()
 
+                # 5) Sleep for gather messages
+                await asyncio.sleep(0.1)
+
+                # Logging AoI Stats
                 self._log_aoi_stats()
 
-                # 5) Aggregate with available neighbors
+                # 6) Aggregate with available neighbors
                 if self.aggregation == "dflaa":
                     aggregated_state = await self.novel_aggregate()
                 elif self.aggregation == "fedavg" or self.aggregation == "softSGD":
@@ -713,7 +696,7 @@ class DFedNode:
                 else:
                     aggregated_state = self.model.state_dict()
 
-                # 6) Set aggregated parameters
+                # 7) Set aggregated parameters
                 self.model.load_state_dict(aggregated_state)
 
                 await asyncio.sleep(0.1)
@@ -732,9 +715,6 @@ class DFedNode:
     async def novel_aggregate(self):
         """
         Completeness-weighted + time-staleness-decayed delta aggregation.
-        Works with fill_local: missing chunks => delta=0 (safe).
-
-        only aggregate floating tensors. Copy integer/bool buffers safely.
         """
         async with self.state_lock:
             local = self.model.state_dict()
@@ -742,16 +722,19 @@ class DFedNode:
             if not self.neighbor_models:
                 return local
 
-            # now = self.get_current_time()
             now = self.get_global_time()
 
-            # Hyperparams (safe defaults)
             tau = float(self.hyperparams.get("staleness_tau_sec", 1.0))
             min_comp = float(self.hyperparams.get("min_completeness", 0.2))
 
             used_aoi = []
+            fresh = []
+            recent = []
+            moderate = []
+            stale = []
+            weights = {}
+            aoi_by_neighbor = {}
 
-            # Only float tensors participate in delta aggregation
             float_keys = [
                 k for k, v in local.items()
                 if torch.is_tensor(v) and (v.is_floating_point() or v.is_complex())
@@ -763,22 +746,34 @@ class DFedNode:
             used = 0
             for nid, neigh in self.neighbor_models.items():
                 comp = 1.0 - float(self.neighbor_data_loss.get(nid, 1.0))
+                cosine_sim = cosine_similarity(local, neigh)
                 if comp < min_comp:
                     continue
 
-                recv_t = float(self.last_update.get(nid, 0.0))
-                stale_sec = max(0.0, now - recv_t)
+                send_time = float(self.last_update.get(nid, 0.0))
+                received_time = float(self.last_reception_time.get(nid, 0.0))
+                aoi_value = max(0.0, now - send_time)
 
-                used_aoi.append(stale_sec)
+                used_aoi.append(aoi_value)
+                aoi_by_neighbor[nid] = aoi_value
 
-                st = float(np.exp(-stale_sec / max(1e-6, tau)))
-                w = comp * st
+                aoi = float(np.exp(-aoi_value / max(1e-6, tau)))
+                w = comp * aoi
+                weights[nid] = w
                 if w <= 0.0:
                     continue
 
+                if aoi_value < 30:
+                    fresh.append(nid)
+                elif aoi_value < 100:
+                    recent.append(nid)
+                elif aoi_value < 300:
+                    moderate.append(nid)
+                else:
+                    stale.append(nid)
+
                 # accumulate weighted deltas on float tensors only
                 for k in float_keys:
-                    # ensure same dtype/device (should already be, but safe)
                     nk = neigh[k]
                     lk = local[k]
                     if nk.dtype != lk.dtype:
@@ -797,6 +792,10 @@ class DFedNode:
                     "round": int(self.round),
                     "time_s": float(now),
                     "used_neighbors": int(len(used_aoi)),
+                    "fresh_0-30s": fresh,
+                    "recent_30-100s": recent,
+                    "moderate_100-300s": moderate,
+                    "stale_300s_plus": stale,
                     "aoi_min": float(np.min(used_aoi)),
                     "aoi_p50": float(np.median(used_aoi)),
                     "aoi_mean": float(np.mean(used_aoi)),
@@ -811,30 +810,54 @@ class DFedNode:
 
             denom = 1.0 + sum_w
 
-            # Build output:
-            # - float tensors: apply delta mix
-            # - non-float tensors: keep local (or pick latest neighbor—see note below)
             out = dict(local)
             for k in float_keys:
                 out[k] = local[k] + (delta_sum[k] / denom)
 
-            # Optional: keep BN counters stable (recommended)
-            # num_batches_tracked is Long; keeping local is safe and standard.
-            # If you want instead "latest neighbor", you can do it here.
-
             print(f"[Node {self.node_id}] DFLAA (delta): used={used} sum_w={sum_w:.3f}")
+
+            if self.round % 100 == 0:
+                # Logging AoI stats ...
+                print(f"\n[Node {self.node_id}] Round {self.round} Weight Distribution:")
+
+                buckets = [
+                    ("fresh_0-30s", 0.0, 30.0),
+                    ("recent_30-100s", 30.0, 100.0),
+                    ("moderate_100-300s", 100.0, 300.0),
+                    ("stale_300s+", 300.0, float("inf")),
+                ]
+
+                bucket_count = {name: 0 for name, _, _ in buckets}
+                bucket_weight = {name: 0.0 for name, _, _ in buckets}
+
+                total_w = 0.0
+
+                for nid, w in weights.items():
+                    total_w += float(w)
+
+                    aoi = float(aoi_by_neighbor.get(nid, float("inf")))
+
+                    for name, lo, hi in buckets:
+                        if lo <= aoi < hi:
+                            bucket_count[name] += 1
+                            bucket_weight[name] += float(w)
+                            break
+
+                print(f"  TOTAL sum_w = {total_w:.4f}\n")
+
+                for name, _, _ in buckets:
+                    wsum = bucket_weight[name]
+                    cnt = bucket_count[name]
+                    pct = (100.0 * wsum / total_w) if total_w > 0 else 0.0
+                    print(f"       {name}: {cnt} neighbors → weight={wsum:7.4f} ({pct:5.1f}%)")
+
             return out
 
     async def fedavg_aggregate(self):
         """
-        FedAvg aggregation with dtype safety:
-          - Aggregates ONLY floating/complex tensors.
-          - Copies non-float tensors (e.g., BN num_batches_tracked: Long) from local.
-          - Casts neighbor tensors to local dtype/device for float keys.
-          - Logs per-round neighbor info like your original.
+        FedAvg aggregation with dtype safety
         """
         async with self.state_lock:
-            # ---- choose valid neighbors (keep your logic) ----
             if self.aggregation in ("vanilla", "fedavg"):
                 valid_neighbors = [
                     nid for nid in self.neighbor_models.keys()
@@ -851,49 +874,42 @@ class DFedNode:
 
             local_state = self.model.state_dict()
 
-            # ---- keys to aggregate safely ----
             float_keys = [
                 k for k, v in local_state.items()
                 if torch.is_tensor(v) and (v.is_floating_point() or v.is_complex())
             ]
             other_keys = [k for k in local_state.keys() if k not in float_keys]
 
-            # ---- weights ----
             denom = float(len(valid_neighbors) + 1)
             own_weight = 1.0 / denom
-            neigh_weight = 1.0 / denom  # equal weights per neighbor (your current behavior)
+            neigh_weight = 1.0 / denom  
 
-            # ---- init aggregated dict ----
             aggregated = {}
 
-            # copy non-float tensors EXACTLY from local (BN counters, masks, etc.)
             for k in other_keys:
                 v = local_state[k]
                 aggregated[k] = v.clone() if torch.is_tensor(v) else v
 
-            # init float accumulators as zeros
             for k in float_keys:
                 aggregated[k] = torch.zeros_like(local_state[k])
 
-            # ---- accumulate neighbors (float keys only) ----
             for nid in valid_neighbors:
                 neigh = self.neighbor_models[nid]
                 for k in float_keys:
                     nk = neigh[k]
                     lk = local_state[k]
-                    # ensure device + dtype match local
                     if nk.device != lk.device:
                         nk = nk.to(device=lk.device)
                     if nk.dtype != lk.dtype:
                         nk = nk.to(dtype=lk.dtype)
-                    # in-place add with alpha avoids extra casts
+                        
                     aggregated[k].add_(nk, alpha=neigh_weight)
 
-            # ---- add own model (float keys only) ----
+            # ---- add own model ----
             for k in float_keys:
                 aggregated[k].add_(local_state[k], alpha=own_weight)
 
-            # ---- round history logging (same idea as before) ----
+            # ---- round history logging ----
             round_info = {}
             for nid in valid_neighbors:
                 round_info[nid] = {
@@ -925,9 +941,18 @@ class DFedNode:
     async def handle_model_update(self, msg):
         """Handle model update message"""
         sender_id = msg.sender_id
+        reception_time_global = self.get_global_time()
 
         async with self.state_lock:
             local_bytes = model_to_bytes(self.model)
+
+            old_send_time = self.last_update.get(sender_id, 0.0)
+
+            if msg.send_time <= old_send_time:
+                if self.round % 100 == 0:
+                    print(f"[Node {self.node_id}] DISCARDED stale msg from {sender_id}: "
+                          f"send_time={msg.send_time:.2f} <= current={old_send_time:.2f}")
+                return
 
             if self.aggregation in ("softSGD", "dflaa"):
                 neigh_model_bytes = msg.to_bytes_fill_local(local_bytes)
@@ -935,7 +960,6 @@ class DFedNode:
                 neigh_model_bytes = msg.to_bytes_zero_filled()
 
             recon_state = bytes_to_model(neigh_model_bytes, self.schema, fill_missing=False, local_model=None)
-            # IMPORTANT: make sure neighbor tensors are on same device as local
             recon_state = {
                 k: (v.to(self.device) if torch.is_tensor(v) else v)
                 for k, v in recon_state.items()
@@ -945,15 +969,29 @@ class DFedNode:
             self.neighbor_round_counter[sender_id] = msg.round_number
             self.neighbor_data_loss[sender_id] = msg.pl
             self.last_update[sender_id] = msg.send_time
+            self.last_reception_time[sender_id] = reception_time_global
 
+            actual_aoi = reception_time_global - msg.send_time
+            if self.round % 100 == 0:
+                print(f"[Node {self.node_id}] Accepted msg from {sender_id}: "
+                      f"AoI={actual_aoi:.2f}s, round_diff={self.round - msg.round_number}")
             print(f"[Node {self.node_id}] Received round {msg.round_number} update from Node {sender_id}")
 
     async def handle_complete(self, msg):
         """Handle completion message"""
         sender_id = msg.sender_id
+        reception_time_global = self.get_global_time()
 
         async with self.state_lock:
             local_bytes = model_to_bytes(self.model)
+
+            old_send_time = self.last_update.get(sender_id, 0.0)
+
+            if msg.send_time <= old_send_time:
+                if self.round % 100 == 0:
+                    print(f"[Node {self.node_id}] DISCARDED stale msg from {sender_id}: "
+                          f"send_time={msg.send_time:.2f} <= current={old_send_time:.2f}")
+                return
 
             if self.aggregation in ("softSGD", "dflaa"):
                 neigh_model_bytes = msg.to_bytes_fill_local(local_bytes)
@@ -970,10 +1008,15 @@ class DFedNode:
             self.neighbor_round_counter[sender_id] = msg.round_number
             self.neighbor_data_loss[sender_id] = msg.pl
             self.last_update[sender_id] = msg.send_time
+            self.last_reception_time[sender_id] = reception_time_global
 
             if sender_id not in self.completed_nodes:
                 self.completed_nodes.append(sender_id)
 
+            actual_aoi = reception_time_global - msg.send_time
+            if self.round % 100 == 0:
+                print(f"[Node {self.node_id}] Accepted msg from {sender_id}: "
+                      f"AoI={actual_aoi:.2f}s, round_diff={self.round - msg.round_number}")
             print(f"[Node {self.node_id}] {sender_id} completed training")
 
     async def send_model_update(self):
@@ -1025,7 +1068,6 @@ class DFedNode:
         """
         total_msgs: Dict[str, BundledChunkUpdate] = {}
         current_time = self.get_current_time()
-        # Current global time (when THIS node is sending)
         send_time_global = self.get_global_time()
         sender_pos_dict = self.mobility.get_positions(send_time_global)
         self_id = int(self.node_id.split("_")[-1])
@@ -1034,7 +1076,6 @@ class DFedNode:
             print(f"ERROR [Node {self.node_id}] Node is not in position dict")
             return None
 
-        # Split model into chunks
         total_size = len(model_bytes)
         chunk_size = self.chunk_size_kb * 1024
         num_chunks = (total_size + chunk_size - 1) // chunk_size
@@ -1046,7 +1087,6 @@ class DFedNode:
             chunk_data = model_bytes[start:end]
             chunks.append((i, chunk_data))
 
-        # Send to each neighbor
         network_info = {}
         for receiver_id in range(self.num_nodes):
             if receiver_id == self_id:
@@ -1064,7 +1104,7 @@ class DFedNode:
             )
 
             if network_cond is None:
-                continue  # Out of range
+                continue  
 
             received_chunks: List[Tuple[int, bytes]] = []
             received_bytes = 0
@@ -1072,7 +1112,7 @@ class DFedNode:
             for chunk_id, chunk_data in chunks:
                 self.total_chunks_sent += 1
 
-                # Losses are grater than 8% are considered as complete drops
+                # Losses which are greater than 8% are only considered as complete drops
                 if network_cond.packet_loss > 0.08:
                     # Each chunk has independent packet loss probability
                     if self.rng.random() >= network_cond.packet_loss:
@@ -1084,17 +1124,10 @@ class DFedNode:
                     received_chunks.append((chunk_id, chunk_data))
                     received_bytes += len(chunk_data)
 
-            # If nothing survived, do not send anything
             if not received_chunks:
                 continue
 
             print(f"Transmitting model to Node {receiver_id}: {received_bytes} / {total_size} bytes")
-
-            # Calculate transmission delay
-            # Only received chunks contribute to transmission time
-            # received_size_mb = (len(received_chunk_ids) * self.network_config.get("chunk_size_kb", 4)) / 1024.0
-            # transmission_time_sec = received_size_mb / network_cond.bandwidth_mbps
-            # total_delay_sec = (network_cond.latency_ms / 1000.0) + transmission_time_sec
 
             total_delay_sec = (network_cond.latency_ms / 1000.0)
 
@@ -1123,7 +1156,6 @@ class DFedNode:
 
             total_msgs[receiver_id] = update
 
-        # collect network history data
         self.network_history[self.round] = network_info
 
         return total_msgs
@@ -1160,7 +1192,7 @@ class DFedNode:
         delay = []
 
         for nid in nbrs:
-            if nid in self.last_gen_time:
+            if nid in self.last_gen_time and nid in self.last_reception_time:
                 aoi.append(now - self.last_gen_time[nid])
             if nid in self.last_delay:
                 delay.append(self.last_delay[nid])
@@ -1179,8 +1211,7 @@ class DFedNode:
             float(np.max(delay)) if delay else float("nan"),
         )
         self.aoi_log.append(row)
-
-        # optional print every 50 rounds
+        
         if self.round % 50 == 0:
             print(f"[Node {self.node_id}] AoI mean/med/p90/max = "
                   f"{row[2]:.2f}/{row[3]:.2f}/{row[4]:.2f}/{row[5]:.2f} sec | "

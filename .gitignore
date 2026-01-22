@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyc
+*.pyo
+*$py.class
+
+# Environments
+.env
+venv/
+ENV/
+
+# IDEs
+.vscode/
+.idea/
+.DS_Store
+
+# Project specific
+data/
+partitions/
+dataset_partitions/
+mobility.csvexp_cache
+*.log
+*.pt
+
+# datasets / archives
+*.tar.gz
+*.zip
