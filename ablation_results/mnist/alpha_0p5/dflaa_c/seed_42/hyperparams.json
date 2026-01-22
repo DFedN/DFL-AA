@@ -1,0 +1,22 @@
+{
+  "base_latency_ms": 2.0,
+  "latency_per_km": 5.0,
+  "base_loss_ms": 0.02,
+  "loss_per_100m": 0.03,
+  "out_of_range": 900.0,
+  "chunk_size_kb": 4,
+  "runtime": 1500,
+  "seed": 42,
+  "staleness_tau_sec": 1.0,
+  "min_completeness": 0.2,
+  "weight_decay": 0.0,
+  "momentum": 0.0,
+  "scheduler": null,
+  "milestones": [],
+  "gamma": 0.0,
+  "model_name": "mnist_mlp",
+  "optimizer": "adam",
+  "learning_rate": 0.001,
+  "batch_size": 64,
+  "local_epochs": 3
+}

@@ -1,0 +1,21 @@
+[mnist | alpha=0.5 | dflaa_s | seed=42]
+  R_common_used:             1867
+  Final acc (common round):  94.6495
+  Max acc (common round):    95.2425
+  AUC over rounds:           173069.15
+  AUC over time-of-round:    84901.10
+  Time to 50%:               5.303168535232544
+  Time to 60%:               5.303168535232544
+  Time to 70%:               5.431728681152542
+
+  --- extra ICDCS metrics (accuracy-only) ---
+  Final p10/p90:             92.2130 / 96.4180
+  Final min/var:             88.2100 / 4.076135
+  Final Jain/Gini:           0.9995 / 0.0107
+  Final CVaR10(error):       9.8650
+
+  --- network summary (from network_history) ---
+  TX count:                  556225.0
+  Mean/p50 latency (s):      0.004729 / 0.004849
+  Mean/p90 pkt loss:         0.1837 / 0.2699
+  Chunk delivery ratio:      0.8213
