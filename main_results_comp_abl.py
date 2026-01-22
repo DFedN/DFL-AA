@@ -2,20 +2,13 @@
 """
 main_results_comp_abl.py
 
-Goal:
-  ICDCS-style comparison plots over TIME for multiple alphas.
-  Each subplot = one alpha, curves = aggregations.
-  Mean across seeds.
-  IMPORTANT: x-axis is COMMON TIME GRID across ALL curves in that subplot
-             (across aggs AND seeds) so lines align and end at same x.
+Generate figures from ablation results using summary of each experiment
 
 Expected layout:
   {root}/{dataset}/alpha_{alpha_tag}/{aggregation}/seed_{seed}/summary_time_of_round.csv
 
-Example:
-  ablation_results/fmnist/alpha_0p1/dflaa/seed_42/summary_time_of_round.csv
 
-Run:
+Usage:
   python main_results_comp_abl.py \
     --root ablation_results \
     --dataset mnist \
@@ -94,15 +87,12 @@ def load_summary_time_csv(path: Path) -> Tuple[np.ndarray, np.ndarray]:
     if len(t) == 0:
         return np.array([], dtype=float), np.array([], dtype=float)
 
-    # sort + enforce monotonic time
     order = np.argsort(t)
     t, y = t[order], y[order]
     t = np.maximum.accumulate(t)
 
-    # shift to start at 0 (each seed's local time axis)
     t = t - float(t[0])
 
-    # if y in [0,1], convert to %
     if np.nanmax(y) <= 1.5:
         y = y * 100.0
 
@@ -123,21 +113,47 @@ def collect_seed_curves(root: Path, dataset: str, alpha: float, aggregation: str
             if len(t) > 1:
                 curves.append((t, y))
         except Exception:
-            # ignore broken / incomplete files silently (keeps script robust)
             pass
     return curves
 
 
 def set_icdcs_single_column_style():
-    # IEEE single-column is ~3.45in wide, so 2 columns ~6.9in
     plt.rcParams.update({
-        "font.size": 7,
-        "axes.titlesize": 7,
-        "axes.labelsize": 7,
-        "legend.fontsize": 6,
-        "xtick.labelsize": 6,
-        "ytick.labelsize": 6,
-        "lines.linewidth": 1.6,
+        # ---- Font family ----
+        "font.family": "serif",
+        "font.serif": ["Times New Roman", "Times", "Nimbus Roman", "DejaVu Serif"],
+        "mathtext.fontset": "stix",  
+        "mathtext.rm": "STIXGeneral",
+        "mathtext.it": "STIXGeneral:italic",
+        "mathtext.bf": "STIXGeneral:bold",
+
+        # ---- Embed fonts nicely in vector outputs ----
+        "pdf.fonttype": 42,
+        "ps.fonttype": 42,
+        "svg.fonttype": "none",  
+
+        # ---- Sizes ----
+        "font.size": 18,
+        "axes.titlesize": 18,
+        "axes.labelsize": 18,
+        "xtick.labelsize": 18,
+        "ytick.labelsize": 18,
+        "legend.fontsize": 12,
+
+        # ---- Lines, ticks, layout ----
+        "lines.linewidth": 1.2,
+        "axes.linewidth": 0.8,
+        "xtick.major.size": 3,
+        "ytick.major.size": 3,
+        "xtick.major.width": 0.8,
+        "ytick.major.width": 0.8,
+        "xtick.minor.size": 2,
+        "ytick.minor.size": 2,
+
+        # Clean export defaults
+        "savefig.dpi": 300,  
+        "savefig.bbox": "tight",
+        "savefig.pad_inches": 0.02,
     })
 
 
@@ -148,45 +164,34 @@ def style_for_agg(agg: str) -> Tuple[str, str, str]:
     """
     k = agg.strip().lower()
 
-    # normalize common variants
     k = k.replace("softdsgd", "softsgd")
 
     style_map = {
         # DFL-AA family (greens, different line styles)
         "dflaa":    ("tab:green", "-",  "DFL-AA"),
-        "dflaa_s":  ("tab:green", "--", "DFL-AA (w/o AoI decay)"),
-        "dflaa_c":  ("tab:green", ":",  "DFL-AA (completeness-only)"),
+        "dflaa_s":  ("tab:green", "--", "DFL-AA (w/o AoI)"),
+        "dflaa_c":  ("tab:green", ":",  "DFL-AA (o comp)"),
 
         # Soft-DSGD family (oranges, different line styles)
         "softsgd":    ("tab:orange", "-",  "Soft-DSGD"),
-        "softsgd_s":  ("tab:orange", "--", "Soft-DSGD (w/ AoI decay)"),
-        "softgsd_c":  ("tab:orange", ":",  "Soft-DSGD (completeness-only)"),
+        "softsgd_s":  ("tab:orange", "--", "Soft-DSGD (w AoI)"),
+        "softsgd_c":  ("tab:orange", ":",  "Soft-DSGD (w comp)"),
     }
 
     if k in style_map:
         return style_map[k]
-    # fallback if you pass a new name
     return ("tab:blue", "-", agg)
 
 
 def compute_common_horizon_per_alpha(
     curves_by_agg: Dict[str, List[Tuple[np.ndarray, np.ndarray]]]
 ) -> float:
-    """
-    For a given alpha:
-      - For each aggregation, compute overlap horizon across seeds: agg_tmax = min(seed_max_t)
-      - Then compute alpha_tmax = min(agg_tmax across aggregations)
-
-    This guarantees:
-      - no extrapolation for any seed
-      - ALL curves in this subplot share the SAME x-range
-    """
+    
     agg_horizons = []
     for agg, curves in curves_by_agg.items():
         valid = [(t, y) for (t, y) in curves if len(t) > 1 and len(y) > 1]
         if not valid:
             continue
-        # overlap across seeds for this agg
         agg_tmax = min(float(np.max(t)) for (t, _) in valid)
         if np.isfinite(agg_tmax) and agg_tmax > 0:
             agg_horizons.append(agg_tmax)
@@ -210,7 +215,6 @@ def mean_curve_on_grid(
 
     Y = np.full((len(valid), len(grid_t)), np.nan, dtype=float)
     for i, (t, y) in enumerate(valid):
-        # grid_t guaranteed <= max(t) by our horizon design
         Y[i, :] = np.interp(grid_t, t, y)
 
     return np.nanmean(Y, axis=0)
@@ -230,14 +234,12 @@ def plot_components_1xN(
     if n < 1:
         raise ValueError("Need at least one alpha")
 
-    # width ~3.45in per column (IEEE single-column width)
-    fig_w = 3.45 * n
-    fig_h = 2.25
+    fig_w = 5 * n
+    fig_h = 3
     fig, axes = plt.subplots(1, n, figsize=(fig_w, fig_h), sharey=True)
     if n == 1:
         axes = [axes]
 
-    # Reserve TOP space for legend (prevents legend/title overlap)
     fig.subplots_adjust(
         left=0.08, right=0.995,
         bottom=0.18, top=0.80,
@@ -249,16 +251,14 @@ def plot_components_1xN(
 
     for ax, alpha in zip(axes, alphas):
         ax.grid(True, alpha=0.25)
-        ax.set_ylim(0, 100)
+        ax.set_ylim(30, 100)
         ax.set_xlabel("Time (s)")
-        ax.set_title(rf"{dataset.upper()} ($\alpha$={alpha:g})", pad=2)
+        ax.set_title(rf"{dataset.upper()} (Dirichlet: {alpha:g})", pad=2)
 
-        # collect curves for this alpha
         curves_by_agg: Dict[str, List[Tuple[np.ndarray, np.ndarray]]] = {}
         for agg in aggregations:
             curves_by_agg[agg] = collect_seed_curves(root, dataset, alpha, agg)
 
-        # compute common horizon (shared x for ALL curves in this subplot)
         tmax_common = compute_common_horizon_per_alpha(curves_by_agg)
         if tmax_common <= 0:
             ax.text(0.5, 0.5, "No data found", ha="center", va="center", transform=ax.transAxes)
@@ -279,7 +279,6 @@ def plot_components_1xN(
             plotted_any = True
             any_data_any_subplot = True
 
-            # collect legend handles once (by label)
             if label not in handles_for_legend:
                 handles_for_legend[label] = line
 
@@ -288,17 +287,16 @@ def plot_components_1xN(
 
     axes[0].set_ylabel("Accuracy (%)")
 
-    # Figure-level legend in reserved top strip (no overlap)
     if handles_for_legend and any_data_any_subplot:
         fig.legend(
             list(handles_for_legend.values()),
             list(handles_for_legend.keys()),
             loc="upper center",
             bbox_to_anchor=(0.5, 0.98),
-            ncol=min(4, len(handles_for_legend)),
+            ncol=min(5, len(handles_for_legend)),
             frameon=False,
             columnspacing=1.2,
-            handlelength=2.2,
+            handlelength=2.8,
             borderaxespad=0.0,
         )
 

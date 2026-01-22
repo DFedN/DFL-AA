@@ -1,30 +1,17 @@
-#!/usr/bin/env python3
 """
 main_results.py
 =============================
 
-1) Figures:
-   - For each dataset (mnist, fmnist), create ONE 1x3 figure:
-       alpha order: 1.0, 0.5, 0.1
-     Each subplot contains 3 curves:
-       fedavg, softSGD, dflaa
-     Adds zoom-in inset for alpha=1.0 and 0.5 (to separate close curves).
-
-2) Tables (text + LaTeX in one .txt file):
-   - Final mean accuracy (%): mean ± std across seeds
-   - Time to reach 70/80/90 (%): mean ± std across seeds
-   Uses summary_time_of_round.csv only.
+Generate figures from main results using summary of each experiment
 
 Expected layout (same as your sweep):
   {results_root}/{dataset}/alpha_{alpha_tag}/{aggregation}/seed_{seed}/summary_time_of_round.csv
 
-summary_time_of_round.csv columns:
-  time_s, round, mean, p10, p50, p90
 
-Run example:
+Usage:
   python main_results.py \
     --results-root all_exp_results \
-    --datasets mnist \
+    --datasets mnist,fmnist \
     --alphas 1.0,0.5,0.1 \
     --aggregations fedavg,softSGD,dflaa \
     --out-dir icdcs_paper_results \
@@ -96,10 +83,8 @@ def load_summary_time_csv(path: Path) -> Tuple[np.ndarray, np.ndarray]:
     t, y = t[order], y[order]
     t = np.maximum.accumulate(t)
 
-    # normalize time to start at 0 for nice plots
     t = t - float(t[0])
 
-    # auto-scale if accuracy is in [0,1]
     if np.nanmax(y) <= 1.5:
         y = y * 100.0
 
@@ -116,7 +101,6 @@ def resample_to_common_grid(curves: List[Tuple[np.ndarray, np.ndarray]], dt: flo
     if not valid:
         return np.array([], dtype=float), np.empty((0, 0), dtype=float)
 
-    # common time horizon = min of max times across seeds (keeps fair overlap)
     t_max_common = min(float(np.max(t)) for (t, _) in valid)
     if not np.isfinite(t_max_common) or t_max_common <= 0:
         return np.array([], dtype=float), np.empty((0, 0), dtype=float)
@@ -125,9 +109,7 @@ def resample_to_common_grid(curves: List[Tuple[np.ndarray, np.ndarray]], dt: flo
 
     Y = np.full((len(valid), len(grid_t)), np.nan, dtype=float)
     for i, (t, y) in enumerate(valid):
-        # interpolate within [t[0], t[-1]]
         y_i = np.interp(grid_t, t, y)
-        # if some seed has shorter than t_max_common (shouldn't happen by construction), still safe
         Y[i, :] = y_i
 
     return grid_t, Y
@@ -161,13 +143,41 @@ def first_crossing_time(t: np.ndarray, y: np.ndarray, thr: float) -> float:
 
 def set_icdcs_style():
     plt.rcParams.update({
-        "font.size": 8,
-        "axes.titlesize": 12,
-        "axes.labelsize": 12,
-        "legend.fontsize": 7,
-        "xtick.labelsize": 12,
-        "ytick.labelsize": 12,
-        "lines.linewidth": 1.8,
+        # ---- Font family ----
+        "font.family": "serif",
+        "font.serif": ["Times New Roman", "Times", "Nimbus Roman", "DejaVu Serif"],
+        "mathtext.fontset": "stix", 
+        "mathtext.rm": "STIXGeneral",
+        "mathtext.it": "STIXGeneral:italic",
+        "mathtext.bf": "STIXGeneral:bold",
+
+        # ---- Embed fonts nicely in vector outputs ----
+        "pdf.fonttype": 42,
+        "ps.fonttype": 42,
+        "svg.fonttype": "none",  
+
+        # ---- Sizes ----
+        "font.size": 14,
+        "axes.titlesize": 14,
+        "axes.labelsize": 14,
+        "xtick.labelsize": 14,
+        "ytick.labelsize": 14,
+        "legend.fontsize": 10,
+
+        # ---- Lines, ticks, layout ----
+        "lines.linewidth": 1.2,
+        "axes.linewidth": 0.8,
+        "xtick.major.size": 3,
+        "ytick.major.size": 3,
+        "xtick.major.width": 0.8,
+        "ytick.major.width": 0.8,
+        "xtick.minor.size": 2,
+        "ytick.minor.size": 2,
+
+        # Clean export defaults
+        "savefig.dpi": 300,  
+        "savefig.bbox": "tight",
+        "savefig.pad_inches": 0.02,
     })
 
 
@@ -209,7 +219,6 @@ def collect_seed_curves(
 
     agg_dir = alpha_dir / aggregation
     if not agg_dir.exists():
-        # allow case variants (softSGD vs softsgd)
         for p in alpha_dir.iterdir():
             if p.is_dir() and p.name.lower() == aggregation.lower():
                 agg_dir = p
@@ -233,20 +242,15 @@ def collect_seed_curves(
 # Plotting
 # ----------------------------
 def add_zoom_inset(ax, t_common, mean_curves, zoom_alpha,
-                   inset_box=(0.55, 0.22, 0.42, 0.42),  # (x0, y0, w, h) in AXES coords
-                   x_frac=(0.70, 1.00),                 # zoom on last part of time
+                   inset_box=(0.55, 0.22, 0.42, 0.42),  
+                   x_frac=(0.70, 1.00),                 
                    y_pad=0.6):
-    """
-    inset_box: axes-fraction bbox where the inset lives.
-               Increase y0 to move it UP (e.g., 0.22 -> 0.32).
-    x_frac:    portion of time range to show in zoom (fraction of max time).
-    """
+    
 
     tmax = float(np.max(t_common))
     x0 = x_frac[0] * tmax
     x1 = x_frac[1] * tmax
 
-    # choose y-limits from curves within zoom window
     mask = (t_common >= x0) & (t_common <= x1)
     ys = []
     for _, y in mean_curves.items():
@@ -255,36 +259,31 @@ def add_zoom_inset(ax, t_common, mean_curves, zoom_alpha,
     y_min = float(np.nanmin(np.concatenate(ys))) - y_pad
     y_max = float(np.nanmax(np.concatenate(ys))) + y_pad
 
-    # ---- inset position (THIS is what moves it) ----
     axins = inset_axes(
         ax,
         width="100%", height="100%",
         loc="lower left",
-        bbox_to_anchor=inset_box,         # (x0,y0,w,h) in axes fraction
+        bbox_to_anchor=inset_box,         
         bbox_transform=ax.transAxes,
         borderpad=0.0
     )
 
-    # plot same curves inside inset
+    
     for label, y in mean_curves.items():
         axins.plot(t_common, y, label=label)
 
     axins.set_xlim(x0, x1)
     axins.set_ylim(y_min, y_max)
     axins.grid(True, alpha=0.25)
-    # axins.set_title("Zoom", fontsize=11)
 
-    # optional: make tick labels smaller
     axins.tick_params(axis="both", labelsize=9)
 
-    # draw the rectangle + connectors
     mark_inset(ax, axins, loc1=2, loc2=4, fc="none", ec="0.35")
 
 def _interp_to_grid(t_src: np.ndarray, y_src: np.ndarray, t_dst: np.ndarray) -> np.ndarray:
     """Interpolate y(t) onto t_dst (assumes t_src sorted and increasing)."""
     if len(t_src) < 2 or len(y_src) < 2 or len(t_dst) == 0:
         return np.full_like(t_dst, np.nan, dtype=float)
-    # clip destination grid to source bounds to avoid weird extrapolation
     t0, t1 = float(t_src[0]), float(t_src[-1])
     t_clip = np.clip(t_dst, t0, t1)
     return np.interp(t_clip, t_src, y_src)
@@ -302,21 +301,17 @@ def plot_dataset_1x3(
     set_icdcs_style()
 
     fig, axes = plt.subplots(1, 3, figsize=(18, 3.0), sharey=True)
-    # fig.suptitle(f"{dataset.upper()} (Time vs Mean Accuracy)", y=1.02, fontsize=16)
 
     for idx, alpha in enumerate(alphas):
         ax = axes[idx]
-        ax.set_title(rf"{dataset.upper()}  ($\alpha$={alpha:g})")
+        ax.set_title(rf"{dataset.upper()}  (Dirichlet: {alpha:g})")
         ax.set_xlabel("Time (s)")
         if idx == 0:
             ax.set_ylabel("Mean accuracy (%)")
         ax.grid(True, alpha=0.25)
         ax.set_ylim(0, 100)
 
-        # ------------------------------------------------------------
-        # 1) Build per-method mean curves on THEIR OWN grids first
-        # ------------------------------------------------------------
-        per_method = {}  # label -> (t_grid, y_mean)
+        per_method = {}  
         for agg in aggregations:
             runs = collect_seed_curves(results_root, dataset, alpha, agg)
             curves = [(r.t, r.y) for r in runs]
@@ -333,10 +328,6 @@ def plot_dataset_1x3(
             ax.text(0.5, 0.5, "No data found", ha="center", va="center", transform=ax.transAxes)
             continue
 
-        # ------------------------------------------------------------
-        # 2) Create ONE shared time grid across methods (panel-level)
-        #    Use the min of max-times so every curve is defined.
-        # ------------------------------------------------------------
         t_max_shared = min(float(np.max(tg)) for (tg, _) in per_method.values() if len(tg) > 0)
         if not np.isfinite(t_max_shared) or t_max_shared <= 0:
             ax.text(0.5, 0.5, "Insufficient time range", ha="center", va="center", transform=ax.transAxes)
@@ -344,22 +335,17 @@ def plot_dataset_1x3(
 
         t_common = np.arange(0.0, t_max_shared + 1e-9, float(dt_resample), dtype=float)
 
-        # ------------------------------------------------------------
-        # 3) Interpolate each method's mean curve onto shared grid
-        # ------------------------------------------------------------
         mean_curves_aligned = {}
         for label, (tg, ym) in per_method.items():
             mean_curves_aligned[label] = _interp_to_grid(tg, ym, t_common)
 
-        # Plot
         for label, y in mean_curves_aligned.items():
             ax.plot(t_common, y, label=label)
 
-        ax.legend(loc="lower right", frameon=True)
+        ax.legend(loc="lower left", frameon=True)
 
-        # Zoom inset for close curves (alpha=1.0 and 0.5 by default)
         if any(abs(alpha - za) < 1e-9 for za in zoom_alphas):
-            add_zoom_inset(ax, t_common, mean_curves_aligned, zoom_alpha=alpha, inset_box=(0.55, 0.32, 0.42, 0.42))
+            add_zoom_inset(ax, t_common, mean_curves_aligned, zoom_alpha=alpha, inset_box=(0.52, 0.25, 0.45, 0.45))
 
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"{dataset}_time_mean_1x3_zoom.png"
@@ -371,7 +357,7 @@ def plot_dataset_1x3(
 
 
 # ----------------------------
-# Tables (merged from your previous table script idea)
+# Tables
 # ----------------------------
 @dataclass
 class RunStats:
@@ -398,7 +384,7 @@ def build_tables_from_summaries(
     agg_display: Dict[str, str],
     out_txt: Path,
 ):
-    # collect per-seed stats
+
     data: Dict[str, Dict[float, Dict[str, List[RunStats]]]] = {}
 
     for ds in datasets:
@@ -420,7 +406,6 @@ def build_tables_from_summaries(
                         )
                     )
 
-    # plain text
     def fmt(mu, sd, digits=2):
         if not np.isfinite(mu):
             return "--"
@@ -465,10 +450,8 @@ def build_tables_from_summaries(
                 )
         out.append("")
 
-    # LaTeX tables
-    out.append("\n==== LaTeX tables (paste into ICDCS template) ====\n")
+    out.append("\n==== LaTeX tables ====\n")
 
-    # LaTeX: final accuracy
     out.append(r"\begin{table}[t]")
     out.append(r"\centering")
     out.append(r"\caption{Final mean accuracy (\%) across seeds (mean$\pm$std).}")
@@ -498,7 +481,6 @@ def build_tables_from_summaries(
     out.append(r"\end{table}")
     out.append("")
 
-    # LaTeX: time to thresholds
     out.append(r"\begin{table}[t]")
     out.append(r"\centering")
     out.append(r"\caption{Time to reach target accuracy (seconds; mean$\pm$std across seeds).}")
@@ -567,14 +549,12 @@ def main():
     aggregations = [a.strip() for a in args.aggregations.split(",") if a.strip()]
     zoom_alphas = tuple(float(x.strip()) for x in args.zoom_alphas.split(",") if x.strip())
 
-    # stable alpha order (you requested 1.0,0.5,0.1)
-    # if user passes different, keep their order
     agg_display = {
         "fedavg": "FedAvg",
         "softsgd": "Soft-DSGD",
         "dflaa": "DFL-AA",
     }
-    # preserve user-provided capitalization in folder names but use display mapping
+    
     agg_display_final = {a.lower(): agg_display.get(a.lower(), a) for a in aggregations}
 
     # figures
