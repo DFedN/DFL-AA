@@ -2,6 +2,18 @@
 
 Welcome to the **DFL-AA Simulator** codebase.
 
+***DFL-AA** (Delta-based Decentralized Federated Learning with Adaptive Aggregation) is a lightweight framework for federated learning in mobile environments with **unreliable communication** and **high mobility**.*
+
+## Overview (DFL-AA)
+
+Mobile **decentralized federated learning (DFL)** over wireless / lossy links suffers from **packet loss, intermittent connectivity, and partial or stale neighbor updates**, which makes naïve parameter averaging unreliable and bandwidth-inefficient. **DFL-AA (Delta Aggregation)** addresses this by exchanging **model deltas** (changes since the last shared state) and performing **robust neighbor aggregation** that accounts for missing/partial transmissions, improving stability and accuracy under mobility while reducing communication overhead.
+
+## System Diagram
+
+<p align="center">
+  <img src="/workspaces/DFL-AA/dflaa_overview.png" alt="DFL-AA System Diagram" width="85%">
+</p>
+
 This repository provides the simulator code and scripts required to reproduce the experiments and generate figures reported in our work. The typical workflow is:
 
 1. Generate **mobility traces** for a given number of nodes  
