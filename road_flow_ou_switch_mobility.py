@@ -1,6 +1,5 @@
-#!/usr/bin/env python3
 """
-road_flow_ou_switch_mobility_fixed.py
+road_flow_ou_switch_mobility.py
 =====================================
 
 Fixes:
@@ -19,7 +18,7 @@ Backbone claims (paper-ready):
 Outputs:
 time_sec,node_id,x_m,y_m,vx_mps,vy_mps,flow_vx_mps,flow_vy_mps,rel_vx_mps,rel_vy_mps,flow_id
 
-Example (balanced + slow neighbor drift):
+Example : Prepared for MNIST 3000s runtime:
   python road_flow_ou_switch_mobility.py \
     --nodes 20 --area_m 2000 --duration_s 3000 --dt_s 1 \
     --num_flows 4 --flow_heading_mode paired --flow_heading_deg 0 --flow_heading_spread_deg 90 \

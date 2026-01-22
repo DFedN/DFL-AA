@@ -318,9 +318,8 @@ def main():
             if not args.no_plot:
                 plot_heatmap(counts, folder / "distribution_heatmap.png", title=title)
 
-            print(f"\n✅ Saved: {folder}")
 
-    print("\n[OK] All partitions created.")
+    print("\nAll partitions created.")
 
 
 if __name__ == "__main__":
