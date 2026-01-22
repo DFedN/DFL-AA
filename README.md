@@ -21,10 +21,10 @@ w_new  = w_local + Σ(weight * Δ) / (1 + Σ weight)
 ## System Diagram
 
 <p align="center">
-  <img src="https://github.com/DFedN/DFL-AA/blob/main/dflaa_overview.png" alt="DFL-AA System Diagram" width="75%">
+  <img src="https://github.com/DFedN/DFL-AA/blob/main/dflaa_overview.png" alt="DFL-AA System Diagram" width="85%">
 </p>
 
-### Here is the promising performances of our method compared to other baselines (1. on MNIST and 2. on Fashion MNIST) 
+##### Here is the promising performances of our method compared to other baselines (1. on MNIST and 2. on Fashion MNIST) 
 
 <p align="center">
   <img src="https://github.com/DFedN/DFL-AA/blob/main/icdcs_paper_results/mnist_time_mean_1x3_zoom.png" alt="DFL-AA System Diagram" width="85%">
