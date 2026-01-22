@@ -499,7 +499,7 @@ class DFedNode:
         self.theta_old = None
         self.alignment_threshold = 0.0  
 
-        #Age-of_Information
+        # Age-of_Information
         self.last_gen_time = {}  
         self.last_arrival_time = {}  
         self.last_delay = {} 
