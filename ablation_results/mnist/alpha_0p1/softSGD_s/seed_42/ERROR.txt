@@ -1,0 +1,18 @@
+[36mray::DFedNode.start()[39m (pid=134060, ip=172.26.144.58, actor_id=bd4c49c2f1c1927b07397b5201000000, repr=<dfl_core_abl.DFedNode object at 0x7fca5b4ce110>)
+  File "/home/student.unimelb.edu.au/hewakaluanna/anaconda3/envs/dflaa/lib/python3.11/concurrent/futures/_base.py", line 449, in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+  File "/home/student.unimelb.edu.au/hewakaluanna/anaconda3/envs/dflaa/lib/python3.11/concurrent/futures/_base.py", line 401, in __get_result
+    raise self._exception
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/student.unimelb.edu.au/hewakaluanna/Documents/python-projects/DFL-Simulator/DFedNexus_beta/dfl_core_abl.py", line 624, in start
+    await self.training_loop()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/student.unimelb.edu.au/hewakaluanna/Documents/python-projects/DFL-Simulator/DFedNexus_beta/dfl_core_abl.py", line 720, in training_loop
+    aggregated_state = await self.aggregate_with_ablation()
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/student.unimelb.edu.au/hewakaluanna/Documents/python-projects/DFL-Simulator/DFedNexus_beta/dfl_core_abl.py", line 806, in aggregate_with_ablation
+    if w > 0.0:
+       ^
+UnboundLocalError: cannot access local variable 'w' where it is not associated with a value
